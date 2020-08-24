@@ -1,0 +1,34 @@
+
+
+  label  ePay.bg Confirmations
+  system 
+
+=INVOICE
+
+    char 128
+ 
+=AMOUNT
+
+    real
+  
+=PAY_STATUS
+
+    char  64
+    
+=PAY_TIME
+
+    utime
+
+=STAN
+
+    char  16
+
+=BCODE
+
+    char  16
+
+=BIN
+
+
+    char  16
+
