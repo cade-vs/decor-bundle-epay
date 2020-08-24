@@ -39,6 +39,7 @@ use Decor::Core::DSN;
 use MIME::Base64;
 use Digest::SHA1 qw( sha1 );
 use Digest::HMAC qw( hmac_hex );
+use Data::Dumper;
 
 use parent qw( Decor::Core::Net::Server );
 
@@ -78,19 +79,22 @@ sub sub_confirm
   my $checksum  = uc $mi->{ 'CHECKSUM' };
   boom "empty DATA/CHECKSUM" if $data eq '' or $checksum eq '';
 
+  my $io = new Decor::Core::DB::IO;
+
   my $epay_setup = $io->read_first1_hashref( 'EPAY_SETUP', '', { ORDERBY => '_ID DESC', LIMIT => 1 } );
-  boom "cannot load EPAY_SETUP record" unless $epay_setup;
+  boom "E_EPAYSETUP: cannot load EPAY_SETUP record" unless $epay_setup;
   
   my $secret_keyword = $epay_setup->{ 'KEYWORD' };
 
   my $hmac = hmac_hex( $data, $secret_keyword, \&sha1 );
   
-  boom "invalid CHECKSUM" unless $hmac eq $checksum;
+  boom "E_CHECKSUM: invalid CHECKSUM" unless $hmac eq $checksum;
 
   my $ar = parse_ep_data( $data );
+
+  print STDERR Dumper( $data, $secret_keyword, $ar );
   
   my $res;
-  my $io = new Decor::Core::DB::IO;
   for my $hr ( @$ar )
     {
     my $inv = $hr->{INVOICE};
