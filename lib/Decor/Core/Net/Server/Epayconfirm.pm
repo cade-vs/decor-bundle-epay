@@ -25,7 +25,7 @@ use Exception::Sink;
 use Decor::Core::Subs;
 use Decor::Core::Log;
 use Decor::Shared::Utils;
-use Decor::Shared::Utils;
+use Decor::Shared::Types;
 use Decor::Core::Env;
 use Decor::Core::Log;
 use Decor::Core::DB::Record;
@@ -53,17 +53,8 @@ sub on_process_xt_message
 
   my $xt = $mi->{ 'XT' };
   
-  eval
-  {
   return sub_confirm( $mi, $mo ) if uc $xt eq 'CONFIRM';
-  die "unknown MESSAGE TYPE [$xt]\n";
-  };
-  if( $@ )
-    {
-    %$mo = ();
-    $mo->{ 'XS'     } = "E_ERROR";
-    $mo->{ 'XS_DES' } = $@;
-    }
+  die "E_UNKNOWNMESSAGE: unknown MESSAGE TYPE [$xt]\n";
 
   return 1;
 }
@@ -75,7 +66,7 @@ sub sub_confirm
   my $mi   = shift;
   my $mo   = shift;
   
-  my $data      = uc $mi->{ 'DATA' };
+  my $data      =    $mi->{ 'DATA' };
   my $checksum  = uc $mi->{ 'CHECKSUM' };
   boom "empty DATA/CHECKSUM" if $data eq '' or $checksum eq '';
 
@@ -86,19 +77,23 @@ sub sub_confirm
   
   my $secret_keyword = $epay_setup->{ 'KEYWORD' };
 
-  my $hmac = hmac_hex( $data, $secret_keyword, \&sha1 );
+  my $hmac = uc hmac_hex( $data, $secret_keyword, \&sha1 );
+
+  print STDERR Dumper( $data, $secret_keyword, "$hmac eq $checksum" );
   
   boom "E_CHECKSUM: invalid CHECKSUM" unless $hmac eq $checksum;
 
+  $data = decode_base64( $data );
+
   my $ar = parse_ep_data( $data );
 
-  print STDERR Dumper( $data, $secret_keyword, $ar );
+  print STDERR Dumper( $data, $secret_keyword, $data, $ar );
   
   my $res;
   for my $hr ( @$ar )
     {
     my $inv = $hr->{INVOICE};
-    if( ! $io->read_first1_hashref( 'EPAY_CONFIRM', 'PAY_INVOICE = ?', { BIND => [ $inv ] } ) )
+    if( ! $io->read_first1_hashref( 'EPAY_CONFIRM', 'INVOICE = ?', { BIND => [ $inv ] } ) )
       {
       # NOTE: may have race condition but it is not expected epay to notify for the same invoice in parallel
       # NOTE: still damage will not be done if insert fails, epay will retry
@@ -107,20 +102,20 @@ sub sub_confirm
     $res .= "INVOICE=$inv:STATUS=OK\n";
     }
   
-  $mo->{ 'RESULT' } = $res;
+  $mo->{ 'RESULT_DATA' } = $res;
   $mo->{ 'XS'     } = 'OK';
 }
 
 #-----------------------------------------------------------------------------
 
 my %EPAY_CONF_ATTR = (
-                        INVOICE      => 1,
-                        AMOUNT       => 1,
-                        PAY_STATUS   => 1,
-                        PAY_TIME     => 1,
-                        STAN         => 1,
-                        BCODE        => 1,
-                        BIN          => 1,
+                        STATUS       => 'PAY_STATUS',
+                        INVOICE      => 'INVOICE',
+                        AMOUNT       => 'AMOUNT',
+                        PAY_TIME     => 'PAY_TIME',
+                        STAN         => 'STAN',
+                        BCODE        => 'BCODE',
+                        BIN          => 'BIN',
                      );
 
 sub parse_ep_data
@@ -139,10 +134,12 @@ LINE: for my $line ( @data )
     for my $attr ( @line )
       {
       next LINE unless $attr =~ /([A-Z_0-9]+)=(.+)/;
-      next unless $EPAY_CONF_ATTR{ $1 };
-      $h{ $1 } = { $2 };
+      next unless exists $EPAY_CONF_ATTR{ uc $1 };
+      $h{ $EPAY_CONF_ATTR{ uc $1 } } = $2;
       }
-    next unless exists $h{ 'INVOICE' } and $h{ 'STATUS' };
+    print STDERR "\n\nnext unless exists $h{ 'INVOICE' } and exists $h{ 'STATUS' }\n\n";
+    next unless exists $h{ 'INVOICE' } and exists $h{ 'PAY_STATUS' };
+    print STDERR "\n\nnext unless exists $h{ 'INVOICE' } and exists $h{ 'STATUS' } ++++++++++ OK \n\n";
     if( $h{ 'PAY_TIME' } =~ /(\d\d\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)/ )
       {
       $h{ 'PAY_TIME' } = type_revert( "$1-$2-$3T$4:$5:$6", { NAME => 'UTIME' } ); # ISO
@@ -151,6 +148,7 @@ LINE: for my $line ( @data )
       {
       delete $h{ 'PAY_TIME' };
       }  
+    print STDERR "\n\nOK OK OK PUSH ARR++++++++++++++++++++\n\n";
     push @arr, \%h;   
     }
   

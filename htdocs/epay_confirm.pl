@@ -19,8 +19,8 @@ use lib '/usr/local/decor/shared/lib';
 use Decor::Shared::Net::Client;
 use Data::Dumper;
 
-my $data     = CGI::param('encoded');
-my $checksum = CGI::param('checksum');
+my $data     = CGI::param( 'encoded'  );
+my $checksum = CGI::param( 'checksum' );
 
 my $core = new Decor::Shared::Net::Client;
 $core->connect( '127.0.0.1:42111', 'app1', { 'MANUAL' => 1 } );
