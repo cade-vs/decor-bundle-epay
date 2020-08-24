@@ -79,25 +79,30 @@ sub sub_confirm
 
   my $hmac = uc hmac_hex( $data, $secret_keyword, \&sha1 );
 
-  print STDERR Dumper( $data, $secret_keyword, "$hmac eq $checksum" );
-  
   boom "E_CHECKSUM: invalid CHECKSUM" unless $hmac eq $checksum;
 
   $data = decode_base64( $data );
 
   my $ar = parse_ep_data( $data );
 
-  print STDERR Dumper( $data, $secret_keyword, $data, $ar );
-  
   my $res;
   for my $hr ( @$ar )
     {
     my $inv = $hr->{INVOICE};
-    if( ! $io->read_first1_hashref( 'EPAY_CONFIRM', 'INVOICE = ?', { BIND => [ $inv ] } ) )
+    my $inv_hr;
+    my $inv_id;
+    if( $inv_hr = $io->read_first1_hashref( 'EPAY_CONFIRM', 'INVOICE = ?', { BIND => [ $inv ] } ) )
+      {
+      $inv_id = $inv_hr->{ '_ID' };
+      de_log( "epay: status: existing invoice found: [$inv] with id [$inv_id]" );
+      }
+    else  
       {
       # NOTE: may have race condition but it is not expected epay to notify for the same invoice in parallel
       # NOTE: still damage will not be done if insert fails, epay will retry
-      $io->insert( 'EPAY_CONFIRM', $hr );
+      $hr->{ 'CTIME' } = time();
+      $inv_id = $io->insert( 'EPAY_CONFIRM', $hr );
+      de_log( "epay: status: new invoice processed: [$inv] with id [$inv_id]" );
       }
     $res .= "INVOICE=$inv:STATUS=OK\n";
     }
@@ -137,9 +142,11 @@ LINE: for my $line ( @data )
       next unless exists $EPAY_CONF_ATTR{ uc $1 };
       $h{ $EPAY_CONF_ATTR{ uc $1 } } = $2;
       }
-    print STDERR "\n\nnext unless exists $h{ 'INVOICE' } and exists $h{ 'STATUS' }\n\n";
-    next unless exists $h{ 'INVOICE' } and exists $h{ 'PAY_STATUS' };
-    print STDERR "\n\nnext unless exists $h{ 'INVOICE' } and exists $h{ 'STATUS' } ++++++++++ OK \n\n";
+    unless( exists $h{ 'INVOICE' } and exists $h{ 'PAY_STATUS' } )
+      {
+      de_log( "epay: error: missing STATUS or INVOICE for incoming data line: [$line]" );
+      next;
+      }
     if( $h{ 'PAY_TIME' } =~ /(\d\d\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)/ )
       {
       $h{ 'PAY_TIME' } = type_revert( "$1-$2-$3T$4:$5:$6", { NAME => 'UTIME' } ); # ISO
@@ -148,7 +155,7 @@ LINE: for my $line ( @data )
       {
       delete $h{ 'PAY_TIME' };
       }  
-    print STDERR "\n\nOK OK OK PUSH ARR++++++++++++++++++++\n\n";
+    de_log( "epay: status: incoming data line: [$line]" );
     push @arr, \%h;   
     }
   
