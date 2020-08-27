@@ -11,3 +11,11 @@
 =min
    char 20
 
+=url_ok
+	char 256
+
+=url_cancel
+	char 256
+
+=demo
+	type bool
